@@ -8,6 +8,8 @@ from __future__ import print_function
 import tensorflow as tf
 import numpy as np
 
+tf.compat.v1.disable_eager_execution()
+
 
 # DNN network for memory
 class MemoryDNN:
@@ -38,62 +40,59 @@ class MemoryDNN:
         # store training cost
         self.cost_his = []
 
-        # reset graph 
-        tf.reset_default_graph()
-
         # initialize zero memory [h, m]
         self.memory = np.zeros((self.memory_size, self.net[0]+ self.net[-1]))
 
         # construct memory network
         self._build_net()
 
-        self.sess = tf.Session()
+        self.sess = tf.compat.v1.Session()
 
         # for tensorboard
         if output_graph:
             # $ tensorboard --logdir=logs
             # tf.train.SummaryWriter soon be deprecated, use following
-            tf.summary.FileWriter("logs/", self.sess.graph)
+            tf.compat.v1.summary.FileWriter("logs/", self.sess.graph)
 
-        self.sess.run(tf.global_variables_initializer())
+        self.sess.run(tf.compat.v1.global_variables_initializer())
 
 
     def _build_net(self):
         def build_layers(h, c_names, net, w_initializer, b_initializer):
-            with tf.variable_scope('l1'):
-                w1 = tf.get_variable('w1', [net[0], net[1]], initializer=w_initializer, collections=c_names)
-                b1 = tf.get_variable('b1', [1, self.net[1]], initializer=b_initializer, collections=c_names)
+            with tf.compat.v1.variable_scope('l1'):
+                w1 = tf.compat.v1.get_variable('w1', [net[0], net[1]], initializer=w_initializer, collections=c_names)
+                b1 = tf.compat.v1.get_variable('b1', [1, self.net[1]], initializer=b_initializer, collections=c_names)
                 l1 = tf.nn.relu(tf.matmul(h, w1) + b1)
 
-            with tf.variable_scope('l2'):
-                w2 = tf.get_variable('w2', [net[1], net[2]], initializer=w_initializer, collections=c_names)
-                b2 = tf.get_variable('b2', [1, net[2]], initializer=b_initializer, collections=c_names)
+            with tf.compat.v1.variable_scope('l2'):
+                w2 = tf.compat.v1.get_variable('w2', [net[1], net[2]], initializer=w_initializer, collections=c_names)
+                b2 = tf.compat.v1.get_variable('b2', [1, net[2]], initializer=b_initializer, collections=c_names)
                 l2 = tf.nn.relu(tf.matmul(l1, w2) + b2)
 
-            with tf.variable_scope('M'):
-                w3 = tf.get_variable('w3', [net[2], net[3]], initializer=w_initializer, collections=c_names)
-                b3 = tf.get_variable('b3', [1, net[3]], initializer=b_initializer, collections=c_names)
+            with tf.compat.v1.variable_scope('M'):
+                w3 = tf.compat.v1.get_variable('w3', [net[2], net[3]], initializer=w_initializer, collections=c_names)
+                b3 = tf.compat.v1.get_variable('b3', [1, net[3]], initializer=b_initializer, collections=c_names)
                 out = tf.matmul(l2, w3) + b3
 
             return out
 
         # ------------------ build memory_net ------------------
-        self.h = tf.placeholder(tf.float32, [None, self.net[0]], name='h')  # input
-        self.m = tf.placeholder(tf.float32, [None, self.net[-1]], name='mode')  # for calculating loss
-        self.is_train = tf.placeholder("bool") # train or evaluate
+        self.h = tf.compat.v1.placeholder(tf.float32, [None, self.net[0]], name='h')  # input
+        self.m = tf.compat.v1.placeholder(tf.float32, [None, self.net[-1]], name='mode')  # for calculating loss
+        self.is_train = tf.compat.v1.placeholder("bool") # train or evaluate
 
-        with tf.variable_scope('memory_net'):
+        with tf.compat.v1.variable_scope('memory_net'):
             c_names, w_initializer, b_initializer = \
-                ['memory_net_params', tf.GraphKeys.GLOBAL_VARIABLES], \
-                tf.random_normal_initializer(0., 1/self.net[0]), tf.constant_initializer(0.1)  # config of layers
+                ['memory_net_params', tf.compat.v1.GraphKeys.GLOBAL_VARIABLES], \
+                tf.compat.v1.random_normal_initializer(0., 1/self.net[0]), tf.compat.v1.constant_initializer(0.1)  # config of layers
 
             self.m_pred = build_layers(self.h, c_names, self.net, w_initializer, b_initializer)
 
-        with tf.variable_scope('loss'):
-            self.loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels = self.m, logits = self.m_pred))
+        with tf.compat.v1.variable_scope('loss'):
+            self.loss = tf.reduce_mean(input_tensor=tf.nn.sigmoid_cross_entropy_with_logits(labels = self.m, logits = self.m_pred))
 
-        with tf.variable_scope('train'):
-            self._train_op = tf.train.AdamOptimizer(self.lr, 0.09).minimize(self.loss)
+        with tf.compat.v1.variable_scope('train'):
+            self._train_op = tf.compat.v1.train.AdamOptimizer(self.lr, 0.09).minimize(self.loss)
 
 
     def remember(self, h, m):
