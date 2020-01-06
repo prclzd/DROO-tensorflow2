@@ -1,4 +1,4 @@
-# This is a upgraded version of the [DROO](https://github.com/revenol/DROO) algorithm, where the [memory.py](memory.py) is rewritten based on tensorflow 2.
+# This is an upgraded version of the [DROO](https://github.com/revenol/DROO) algorithm, where the [memory.py](memory.py) is rewritten based on tensorflow 2.
 
 The following description follows from [DROO](https://github.com/revenol/DROO)
 
