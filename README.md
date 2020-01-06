@@ -10,7 +10,7 @@ The following description follows from [DROO](https://github.com/revenol/DROO)
 Python code to reproduce our DROO algorithm for Wireless-powered Mobile-Edge Computing [1], which uses the time-varying wireless channel gains as the input and generates the binary offloading decisions. It includes:
 
 - [memory.py](memory.py): the DROO structure for the WPMEC, inclduing building DNN, storing data sample, Training DNN, and generating quantized binary offloading decisions.
-- [optimizatin.py](optimization): Solve the resource allocation problem.
+- [optimizatin.py](optimization.py): Solve the resource allocation problem.
 
 - [data](./data): all data are stored in this subdirectory, includes:
 
