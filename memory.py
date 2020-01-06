@@ -1,14 +1,19 @@
 #  #################################################################
-#  This file contains memory operation including encoding and decoding operations.
-#
-# version 1.0 -- January 2018. Written by Liang Huang (lianghuang AT zjut.edu.cn)
+#  This file contains the main DROO operations, including building DNN, 
+#  Storing data sample, Training DNN, and generating quantized binary offloading decisions.
+
+#  version 1.0 -- January 2020. Written based on Tensorflow 2 by Weijian Pan and 
+#  Liang Huang (lianghuang AT zjut.edu.cn)
 #  #################################################################
 
 from __future__ import print_function
 import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers
 import numpy as np
 
-tf.compat.v1.disable_eager_execution()
+print(tf.__version__)
+print(tf.keras.__version__)
 
 
 # DNN network for memory
@@ -22,11 +27,9 @@ class MemoryDNN:
         memory_size=1000,
         output_graph=False
     ):
-        # net: [n_input, n_hidden_1st, n_hidded_2ed, n_output]
-        assert(len(net) is 4) # only 4-layer DNN
 
-        self.net = net
-        self.training_interval = training_interval # learn every #training_interval
+        self.net = net  # the size of the DNN
+        self.training_interval = training_interval      # learn every #training_interval
         self.lr = learning_rate
         self.batch_size = batch_size
         self.memory_size = memory_size
@@ -41,64 +44,24 @@ class MemoryDNN:
         self.cost_his = []
 
         # initialize zero memory [h, m]
-        self.memory = np.zeros((self.memory_size, self.net[0]+ self.net[-1]))
+        self.memory = np.zeros((self.memory_size, self.net[0] + self.net[-1]))
 
         # construct memory network
         self._build_net()
 
-        self.sess = tf.compat.v1.Session()
-
-        # for tensorboard
-        if output_graph:
-            # $ tensorboard --logdir=logs
-            # tf.train.SummaryWriter soon be deprecated, use following
-            tf.compat.v1.summary.FileWriter("logs/", self.sess.graph)
-
-        self.sess.run(tf.compat.v1.global_variables_initializer())
-
-
     def _build_net(self):
-        def build_layers(h, c_names, net, w_initializer, b_initializer):
-            with tf.compat.v1.variable_scope('l1'):
-                w1 = tf.compat.v1.get_variable('w1', [net[0], net[1]], initializer=w_initializer, collections=c_names)
-                b1 = tf.compat.v1.get_variable('b1', [1, self.net[1]], initializer=b_initializer, collections=c_names)
-                l1 = tf.nn.relu(tf.matmul(h, w1) + b1)
+        self.model = keras.Sequential([
+                    layers.Dense(self.net[1], activation='relu'),  # the first hidden layer
+                    layers.Dense(self.net[2], activation='relu'),  # the second hidden layer
+                    layers.Dense(self.net[-1], activation='sigmoid')  # the output layer
+                ])
 
-            with tf.compat.v1.variable_scope('l2'):
-                w2 = tf.compat.v1.get_variable('w2', [net[1], net[2]], initializer=w_initializer, collections=c_names)
-                b2 = tf.compat.v1.get_variable('b2', [1, net[2]], initializer=b_initializer, collections=c_names)
-                l2 = tf.nn.relu(tf.matmul(l1, w2) + b2)
-
-            with tf.compat.v1.variable_scope('M'):
-                w3 = tf.compat.v1.get_variable('w3', [net[2], net[3]], initializer=w_initializer, collections=c_names)
-                b3 = tf.compat.v1.get_variable('b3', [1, net[3]], initializer=b_initializer, collections=c_names)
-                out = tf.matmul(l2, w3) + b3
-
-            return out
-
-        # ------------------ build memory_net ------------------
-        self.h = tf.compat.v1.placeholder(tf.float32, [None, self.net[0]], name='h')  # input
-        self.m = tf.compat.v1.placeholder(tf.float32, [None, self.net[-1]], name='mode')  # for calculating loss
-        self.is_train = tf.compat.v1.placeholder("bool") # train or evaluate
-
-        with tf.compat.v1.variable_scope('memory_net'):
-            c_names, w_initializer, b_initializer = \
-                ['memory_net_params', tf.compat.v1.GraphKeys.GLOBAL_VARIABLES], \
-                tf.compat.v1.random_normal_initializer(0., 1/self.net[0]), tf.compat.v1.constant_initializer(0.1)  # config of layers
-
-            self.m_pred = build_layers(self.h, c_names, self.net, w_initializer, b_initializer)
-
-        with tf.compat.v1.variable_scope('loss'):
-            self.loss = tf.reduce_mean(input_tensor=tf.nn.sigmoid_cross_entropy_with_logits(labels = self.m, logits = self.m_pred))
-
-        with tf.compat.v1.variable_scope('train'):
-            self._train_op = tf.compat.v1.train.AdamOptimizer(self.lr, 0.09).minimize(self.loss)
-
+        self.model.compile(optimizer=keras.optimizers.Adam(lr=self.lr), loss=tf.losses.binary_crossentropy, metrics=['accuracy'])
 
     def remember(self, h, m):
         # replace the old memory with new memory
         idx = self.memory_counter % self.memory_size
-        self.memory[idx, :] = np.hstack((h,m))
+        self.memory[idx, :] = np.hstack((h, m))
 
         self.memory_counter += 1
 
@@ -121,21 +84,20 @@ class MemoryDNN:
         h_train = batch_memory[:, 0: self.net[0]]
         m_train = batch_memory[:, self.net[0]:]
         
-        # print(h_train)
-        # print(m_train)
+        # print(h_train)          # (128, 10)
+        # print(m_train)          # (128, 10)
 
         # train the DNN
-        _, self.cost = self.sess.run([self._train_op, self.loss], 
-                                         feed_dict={self.h: h_train, self.m: m_train})
-
-        assert(self.cost >0)    
+        hist = self.model.fit(h_train, m_train, verbose=0)
+        self.cost = hist.history['loss'][0]
+        assert(self.cost > 0)
         self.cost_his.append(self.cost)
 
     def decode(self, h, k = 1, mode = 'OP'):
         # to have batch dimension when feed into tf placeholder
         h = h[np.newaxis, :]
 
-        m_pred = self.sess.run(self.m_pred, feed_dict={self.h: h})
+        m_pred = self.model.predict(h)
 
         if mode is 'OP':
             return self.knm(m_pred[0], k)
@@ -147,10 +109,8 @@ class MemoryDNN:
     def knm(self, m, k = 1):
         # return k-nearest-mode
         m_list = []
-        # generate the ﬁrst binary ofﬂoading decision 
-        # note that here 'm' is the output of DNN before the sigmoid activation function, in the field of all real number. 
-        # Therefore, we compare it with '0' instead of 0.5 in equation (8). Since, sigmod(0) = 0.5.
-        m_list.append(1*(m>0))
+        # generate the ﬁrst binary ofﬂoading decision with respect to equation (8)
+        m_list.append(1*(m>0.5))
         
         if k > 1:
             # generate the remaining K-1 binary ofﬂoading decisions with respect to equation (9)
